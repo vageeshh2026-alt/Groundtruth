@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Groundtruth — routes that account for what's actually happening</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg: #12161a;
+    --panel: #191f24;
+    --panel-alt: #212a30;
+    --border: #2b343b;
+    --text: #e7ebee;
+    --text-muted: #8d98a3;
+    --amber: #f2b705;
+    --amber-dim: #6b5a17;
+    --green: #4fae7f;
+    --red: #e15554;
+    --blue: #5b8def;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    font-size:14px;
+    line-height:1.5;
+  }
+  h1,h2,h3,.brand{font-family:'Space Grotesk',system-ui,sans-serif;}
+
+  #app{
+    display:flex;
+    height:100vh;
+    width:100vw;
+    overflow:hidden;
+  }
+
+  #sidebar{
+    width:400px;
+    min-width:400px;
+    background:var(--panel);
+    border-right:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+    overflow-y:auto;
+  }
+
+  #map{
+    flex:1;
+    background:#0d1013;
+  }
+
+  #mapWrap{
+    flex:1;
+    position:relative;
+  }
+  #mapWrap #map{
+    position:absolute;
+    inset:0;
+  }
+  #mapInfoPanel{
+    position:absolute;
+    top:16px;
+    right:16px;
+    z-index:1000;
+    width:225px;
+    display:flex;
+    flex-direction:column;
+    gap:9px;
+  }
+  .info-card{
+    background:rgba(25,31,36,0.93);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:10px 13px;
+    backdrop-filter:blur(6px);
+  }
+  .info-label{
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--text-muted);
+    margin-bottom:5px;
+  }
+  .info-value{
+    font-size:14px;
+    font-weight:600;
+    color:var(--text);
+  }
+  .info-sub{
+    font-size:11px;
+    color:var(--text-muted);
+    margin-top:3px;
+    line-height:1.4;
+  }
+  .risk-badge{
+    display:inline-block;
+    padding:2px 9px;
+    border-radius:10px;
+    font-size:12px;
+    font-weight:700;
+  }
+  .risk-low{background:rgba(79,174,127,0.18);color:var(--green);}
+  .risk-moderate{background:rgba(242,183,5,0.18);color:var(--amber);}
+  .risk-high{background:rgba(225,85,84,0.18);color:var(--red);}
+
+  .gps-marker{
+    width:15px;height:15px;border-radius:50%;
+    background:var(--blue);
+    border:3px solid #12161a;
+    box-shadow:0 0 0 6px rgba(91,141,239,0.25);
+  }
+
+  .pad{padding:20px 22px;}
+
+  header.pad{
+    padding-bottom:14px;
+    border-bottom:1px solid var(--border);
+  }
+
+  .brand{
+    font-size:21px;
+    font-weight:700;
+    color:var(--text);
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:0;
+  }
+  .brand .dot{
+    width:9px;height:9px;border-radius:50%;
+    background:var(--amber);
+    box-shadow:0 0 0 3px rgba(242,183,5,0.18);
+  }
+  .tagline{
+    color:var(--text-muted);
+    font-size:13px;
+    margin-top:6px;
+    max-width:34ch;
+  }
+
+  section{
+    border-bottom:1px solid var(--border);
+  }
+  section h2{
+    font-size:12.5px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--text-muted);
+    margin:0 0 12px 0;
+  }
+
+  label{
+    display:block;
+    font-size:12.5px;
+    color:var(--text-muted);
+    margin-bottom:5px;
+  }
+  input[type=text]{
+    width:100%;
+    background:var(--panel-alt);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:9px 10px;
+    border-radius:4px;
+    font-size:14px;
+    font-family:inherit;
+    margin-bottom:12px;
+  }
+  input[type=text]:focus{
+    outline:none;
+    border-color:var(--amber);
+  }
+
+  button{
+    font-family:inherit;
+    font-size:13.5px;
+    font-weight:600;
+    border-radius:4px;
+    border:1px solid var(--border);
+    cursor:pointer;
+    padding:10px 14px;
+  }
+  .btn-primary{
+    background:var(--amber);
+    color:#1a1502;
+    border:1px solid var(--amber);
+    width:100%;
+  }
+  .btn-primary:hover{filter:brightness(1.06);}
+  .btn-primary:disabled{opacity:0.5;cursor:default;}
+  .btn-secondary{
+    background:transparent;
+    color:var(--text);
+    width:100%;
+  }
+  .btn-secondary:hover{background:var(--panel-alt);}
+  .btn-secondary.active{
+    border-color:var(--red);
+    color:var(--red);
+  }
+
+  .status-line{
+    font-size:12.5px;
+    color:var(--text-muted);
+    margin-top:8px;
+    min-height:16px;
+  }
+  .status-line.error{color:var(--red);}
+
+  .quick-routes{margin-top:14px;}
+  .quick-label{
+    font-size:11px;
+    color:var(--text-muted);
+    margin-bottom:7px;
+  }
+  .quick-btn{
+    text-align:left;
+    font-size:12.5px;
+    font-weight:500;
+    padding:8px 10px;
+    margin-bottom:6px;
+  }
+
+  .score-breakdown{
+    margin-top:8px;
+    padding-top:8px;
+    border-top:1px solid var(--border);
+    font-size:11.5px;
+    color:var(--text-muted);
+  }
+  .score-breakdown strong{color:var(--amber);}
+
+  .route-card{
+    border:1px solid var(--border);
+    border-left:3px solid var(--border);
+    border-radius:4px;
+    padding:12px 13px;
+    margin-bottom:10px;
+    background:var(--panel-alt);
+    cursor:pointer;
+    transition:border-color .15s;
+  }
+  .route-card:hover{border-color:var(--amber);}
+  .route-card.recommended{border-left-color:var(--amber);}
+  .route-card.baseline{border-left-color:var(--text-muted);}
+  .route-card.selected{background:#242c33;border-color:var(--amber);}
+  .rc-tag{
+    display:inline-block;
+    font-size:9.5px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    padding:2px 6px;
+    border-radius:3px;
+    margin-right:5px;
+    background:rgba(255,255,255,0.06);
+    color:var(--text-muted);
+  }
+  .rc-tag.tag-amber{background:rgba(242,183,5,0.16);color:var(--amber);}
+  .route-card .rc-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:4px;
+  }
+  .route-card .rc-label{
+    font-weight:600;
+    font-size:13.5px;
+  }
+  .route-card.recommended .rc-label{color:var(--amber);}
+  .route-card .rc-eta{
+    font-weight:700;
+    font-size:15px;
+  }
+  .route-card .rc-meta{
+    color:var(--text-muted);
+    font-size:12px;
+    margin-bottom:6px;
+  }
+  .factor{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    font-size:11.5px;
+    background:rgba(255,255,255,0.04);
+    border:1px solid var(--border);
+    padding:3px 7px;
+    border-radius:3px;
+    margin:2px 4px 0 0;
+  }
+  .factor .sw{width:7px;height:7px;border-radius:50%;}
+
+  .legend-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12.5px;
+    color:var(--text-muted);
+    margin-bottom:7px;
+  }
+  .legend-row .sw{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+  .legend-row .ln{width:18px;height:3px;border-radius:2px;flex-shrink:0;}
+
+  #hazardList{
+    max-height:150px;
+    overflow-y:auto;
+  }
+  .hazard-item{
+    font-size:12.5px;
+    color:var(--text-muted);
+    padding:6px 0;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    gap:8px;
+  }
+  .hazard-item:last-child{border-bottom:none;}
+  .hazard-item .htype{color:var(--text);font-weight:500;}
+
+  .note{
+    font-size:12px;
+    color:var(--text-muted);
+    line-height:1.6;
+  }
+  .note strong{color:var(--text);}
+
+  footer.pad{
+    color:var(--text-muted);
+    font-size:11.5px;
+    line-height:1.6;
+  }
+
+  .hazard-pin{
+    display:flex;align-items:center;justify-content:center;
+    width:26px;height:26px;border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg);
+    border:2px solid #12161a;
+    font-size:13px;
+  }
+  .hazard-pin span{transform:rotate(45deg);}
+
+  .leaflet-popup-content-wrapper{
+    background:var(--panel-alt);
+    color:var(--text);
+    border:1px solid var(--border);
+    border-radius:4px;
+  }
+  .leaflet-popup-tip{background:var(--panel-alt);}
+  .popup-select{
+    width:100%;
+    margin-top:6px;
+    background:var(--panel);
+    color:var(--text);
+    border:1px solid var(--border);
+    padding:6px;
+    border-radius:4px;
+    font-family:inherit;
+  }
+  .popup-confirm{
+    margin-top:8px;
+    width:100%;
+  }
+
+  @media (max-width:760px){
+    #app{flex-direction:column;}
+    #sidebar{width:100%;min-width:0;max-height:52vh;border-right:none;border-bottom:1px solid var(--border);}
+    #map{min-height:48vh;}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="sidebar">
+    <header class="pad">
+      <h1 class="brand"><span class="dot"></span>Groundtruth</h1>
+      <div class="tagline">Routing that reacts to weather, hazards and live conditions — not just distance.</div>
+    </header>
+
+    <section class="pad">
+      <h2>Plan a route</h2>
+      <label for="fromInput">From</label>
+      <input type="text" id="fromInput" placeholder="Starting point">
+      <label for="toInput">To</label>
+      <input type="text" id="toInput" placeholder="Destination">
+      <button class="btn-primary" id="findRouteBtn">Find route</button>
+      <div class="status-line" id="routeStatus"></div>
+      <div class="quick-routes" id="quickRoutes">
+        <div class="quick-label">Quick demo routes — edit these to your actual test route</div>
+        <button class="btn-secondary quick-btn" data-from="Tirupporur, Tamil Nadu" data-to="Chennai Central, Tamil Nadu">Tirupporur → Chennai Central</button>
+        <button class="btn-secondary quick-btn" data-from="Tambaram, Chennai" data-to="Marina Beach, Chennai">Tambaram → Marina Beach</button>
+      </div>
+    </section>
+
+    <section class="pad">
+      <h2>Live location</h2>
+      <div class="note" style="margin-bottom:10px;">Uses your browser's GPS to show where you are on the map in real time.</div>
+      <button class="btn-secondary" id="gpsToggleBtn">Enable live GPS</button>
+      <div class="status-line" id="gpsStatus"></div>
+    </section>
+
+    <section class="pad" id="resultsSection" style="display:none;">
+      <h2>Routes — tap to select</h2>
+      <div id="resultsWrap"></div>
+    </section>
+
+    <section class="pad">
+      <h2>Report a hazard</h2>
+      <div class="note" style="margin-bottom:10px;">Tap the button, then tap a spot on the map. Reports are stored and visible to everyone using this demo.</div>
+      <button class="btn-secondary" id="reportModeBtn">Report hazard on map</button>
+      <div id="hazardList" style="margin-top:12px;"></div>
+      <button class="btn-secondary" id="resetDataBtn" style="margin-top:10px;font-size:12px;color:var(--text-muted);">Clear all demo reports</button>
+    </section>
+
+    <section class="pad">
+      <h2>Legend</h2>
+      <div class="legend-row"><span class="ln" style="background:var(--amber);"></span> Recommended route (condition-aware)</div>
+      <div class="legend-row"><span class="ln" style="background:var(--text-muted);border:1px dashed var(--text-muted);background:transparent;"></span> Fastest route (ignores conditions)</div>
+      <div class="legend-row"><span class="sw" style="background:var(--red);"></span> Accident</div>
+      <div class="legend-row"><span class="sw" style="background:#c98a2b;"></span> Pothole</div>
+      <div class="legend-row"><span class="sw" style="background:var(--blue);"></span> Flooding / waterlogging</div>
+      <div class="legend-row"><span class="sw" style="background:var(--green);"></span> Heavy traffic</div>
+      <div class="legend-row"><span class="sw" style="background:var(--blue);border:2px solid #12161a;"></span> Your live location (GPS)</div>
+    </section>
+
+    <footer class="pad">
+      <strong style="color:var(--text);">How this MVP works:</strong> roads come from OpenStreetMap, routes from the open-source OSRM engine, and live weather from Open-Meteo. Hazard reports are crowdsourced from people using this demo, the same way early Waze worked. Scoring weights here are illustrative — a production version would tune these against real incident and delay data.
+    </footer>
+  </div>
+
+  <div id="mapWrap">
+    <div id="map"></div>
+    <div id="mapInfoPanel">
+      <div class="info-card">
+        <div class="info-label">Current weather</div>
+        <div class="info-value" id="infoWeatherValue">—</div>
+        <div class="info-sub" id="infoWeatherSub">Search a route to load conditions</div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Traffic</div>
+        <div class="info-value" id="infoTrafficValue">—</div>
+        <div class="info-sub" id="infoTrafficSub"></div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Road condition</div>
+        <div class="info-value" id="infoRoadValue">—</div>
+        <div class="info-sub" id="infoRoadSub"></div>
+      </div>
+      <div class="info-card">
+        <div class="info-label">Risk factor</div>
+        <div class="info-value"><span class="risk-badge" id="infoRiskBadge">—</span></div>
+        <div class="info-sub" id="infoRiskSub"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(function(){
+
+  var DEFAULT_CENTER = [12.6127, 80.1108];
+  var map = L.map('map', {zoomControl:true}).setView(DEFAULT_CENTER, 11);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    maxZoom: 19
+  }).addTo(map);
+
+  var startMarker = null, endMarker = null;
+  var routeLayers = [];
+  var hazardMarkers = {};
+  var hazards = [];
+  var reportMode = false;
+  var pendingHazardLatLng = null;
+
+  var HAZARD_TYPES = {
+    accident:  {label:'Accident',  color:'#e15554', emoji:'🚧', penalty:0.28},
+    pothole:   {label:'Pothole',   color:'#c98a2b', emoji:'🕳️', penalty:0.07},
+    flooding:  {label:'Flooding',  color:'#5b8def', emoji:'🌊', penalty:0.32},
+    traffic:   {label:'Heavy traffic', color:'#4fae7f', emoji:'🚦', penalty:0.18}
+  };
+
+  function setStatus(msg, isError){
+    var el = document.getElementById('routeStatus');
+    el.textContent = msg || '';
+    el.className = 'status-line' + (isError ? ' error' : '');
+  }
+
+  // ---------- Storage helpers ----------
+  async function loadHazards(){
+    try{
+      var res = await window.storage.get('hazard-reports', true);
+      return res ? JSON.parse(res.value) : [];
+    }catch(e){
+      return [];
+    }
+  }
+  async function saveHazards(list){
+    try{
+      await window.storage.set('hazard-reports', JSON.stringify(list), true);
+    }catch(e){
+      console.error('storage error', e);
+    }
+  }
+
+  function hazardIcon(type){
+    var t = HAZARD_TYPES[type];
+    return L.divIcon({
+      html: '<div class="hazard-pin" style="background:'+t.color+';"><span>'+t.emoji+'</span></div>',
+      className:'', iconSize:[26,26], iconAnchor:[13,26]
+    });
+  }
+
+  function renderHazardList(){
+    var wrap = document.getElementById('hazardList');
+    if(hazards.length === 0){
+      wrap.innerHTML = '<div class="note">No reports yet in this area.</div>';
+      return;
+    }
+    wrap.innerHTML = hazards.slice().reverse().slice(0,12).map(function(h){
+      var t = HAZARD_TYPES[h.type];
+      return '<div class="hazard-item"><span class="htype">'+t.emoji+' '+t.label+'</span><span>'+h.lat.toFixed(3)+', '+h.lng.toFixed(3)+'</span></div>';
+    }).join('');
+  }
+
+  function drawHazardMarkers(){
+    Object.keys(hazardMarkers).forEach(function(id){ map.removeLayer(hazardMarkers[id]); });
+    hazardMarkers = {};
+    hazards.forEach(function(h){
+      var m = L.marker([h.lat, h.lng], {icon: hazardIcon(h.type)})
+        .bindPopup(HAZARD_TYPES[h.type].label + ' reported here')
+        .addTo(map);
+      hazardMarkers[h.id] = m;
+    });
+  }
+
+  async function initHazards(){
+    hazards = await loadHazards();
+    drawHazardMarkers();
+    renderHazardList();
+  }
+  initHazards();
+
+  document.getElementById('resetDataBtn').addEventListener('click', async function(){
+    hazards = [];
+    await saveHazards(hazards);
+    drawHazardMarkers();
+    renderHazardList();
+  });
+
+  // ---------- Hazard reporting ----------
+  var reportBtn = document.getElementById('reportModeBtn');
+  reportBtn.addEventListener('click', function(){
+    reportMode = !reportMode;
+    reportBtn.classList.toggle('active', reportMode);
+    reportBtn.textContent = reportMode ? 'Tap the map to place a report…' : 'Report hazard on map';
+  });
+
+  map.on('click', function(e){
+    if(!reportMode) return;
+    reportMode = false;
+    reportBtn.classList.remove('active');
+    reportBtn.textContent = 'Report hazard on map';
+
+    var popupContent = document.createElement('div');
+    popupContent.innerHTML =
+      '<div style="font-size:13px;font-weight:600;">What\'s happening here?</div>' +
+      '<select class="popup-select" id="hazardTypeSelect">' +
+        '<option value="accident">Accident</option>' +
+        '<option value="pothole">Pothole</option>' +
+        '<option value="flooding">Flooding / waterlogging</option>' +
+        '<option value="traffic">Heavy traffic</option>' +
+      '</select>' +
+      '<button class="btn-primary popup-confirm" id="confirmHazardBtn">Submit report</button>';
+
+    var popup = L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map);
+
+    popupContent.querySelector('#confirmHazardBtn').addEventListener('click', async function(){
+      var type = popupContent.querySelector('#hazardTypeSelect').value;
+      var newHazard = {
+        id: 'h_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        type: type,
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+        ts: Date.now()
+      };
+      hazards.push(newHazard);
+      await saveHazards(hazards);
+      drawHazardMarkers();
+      renderHazardList();
+      map.closePopup();
+      if(lastRoutes) scoreAndRenderRoutes(lastRoutes);
+    });
+  });
+
+  // ---------- Live GPS tracking ----------
+  var gpsWatchId = null;
+  var gpsMarker = null;
+  var gpsAccuracyCircle = null;
+
+  function gpsIcon(){
+    return L.divIcon({ html:'<div class="gps-marker"></div>', className:'', iconSize:[15,15], iconAnchor:[7,7] });
+  }
+
+  function setGpsStatus(msg, isError){
+    var el = document.getElementById('gpsStatus');
+    el.textContent = msg || '';
+    el.className = 'status-line' + (isError ? ' error' : '');
+  }
+
+  function startGpsTracking(){
+    if(!navigator.geolocation){
+      setGpsStatus('Geolocation is not supported in this browser.', true);
+      return;
+    }
+    setGpsStatus('Waiting for a GPS fix…');
+    gpsWatchId = navigator.geolocation.watchPosition(function(pos){
+      var lat = pos.coords.latitude, lng = pos.coords.longitude, acc = pos.coords.accuracy;
+      if(!gpsMarker){
+        gpsMarker = L.marker([lat, lng], {icon: gpsIcon(), zIndexOffset: 1000}).addTo(map).bindPopup('You are here');
+        gpsAccuracyCircle = L.circle([lat, lng], {radius: acc, color:'#5b8def', weight:1, fillColor:'#5b8def', fillOpacity:0.12}).addTo(map);
+        map.setView([lat, lng], 14);
+      }else{
+        gpsMarker.setLatLng([lat, lng]);
+        gpsAccuracyCircle.setLatLng([lat, lng]).setRadius(acc);
+      }
+      setGpsStatus('Tracking live — accuracy \u00B1' + Math.round(acc) + 'm');
+    }, function(err){
+      setGpsStatus('Could not get your location: ' + err.message, true);
+    }, { enableHighAccuracy:true, maximumAge:5000, timeout:15000 });
+  }
+
+  function stopGpsTracking(){
+    if(gpsWatchId !== null){
+      navigator.geolocation.clearWatch(gpsWatchId);
+      gpsWatchId = null;
+    }
+    if(gpsMarker){ map.removeLayer(gpsMarker); gpsMarker = null; }
+    if(gpsAccuracyCircle){ map.removeLayer(gpsAccuracyCircle); gpsAccuracyCircle = null; }
+    setGpsStatus('');
+  }
+
+  var gpsBtn = document.getElementById('gpsToggleBtn');
+  gpsBtn.addEventListener('click', function(){
+    if(gpsWatchId === null){
+      startGpsTracking();
+      gpsBtn.textContent = 'Stop live GPS';
+      gpsBtn.classList.add('active');
+    }else{
+      stopGpsTracking();
+      gpsBtn.textContent = 'Enable live GPS';
+      gpsBtn.classList.remove('active');
+    }
+  });
+
+  // ---------- Geocoding ----------
+  async function geocode(query){
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query);
+    var res = await fetch(url);
+    if(!res.ok) throw new Error('Geocoding failed');
+    var data = await res.json();
+    if(!data || data.length === 0) throw new Error('Location not found: "' + query + '"');
+    return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label: data[0].display_name};
+  }
+
+  // ---------- Weather ----------
+  async function getWeather(lat, lng){
+    var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+      '&current=precipitation,wind_speed_10m,weather_code,temperature_2m';
+    var res = await fetch(url);
+    if(!res.ok) throw new Error('Weather lookup failed');
+    var data = await res.json();
+    return data.current;
+  }
+
+  var WEATHER_CODES = {
+    0:['Clear sky','☀️'],1:['Mainly clear','🌤️'],2:['Partly cloudy','⛅'],3:['Overcast','☁️'],
+    45:['Fog','🌫️'],48:['Fog','🌫️'],
+    51:['Light drizzle','🌦️'],53:['Drizzle','🌦️'],55:['Dense drizzle','🌦️'],
+    61:['Light rain','🌧️'],63:['Rain','🌧️'],65:['Heavy rain','🌧️'],
+    71:['Light snow','🌨️'],73:['Snow','🌨️'],75:['Heavy snow','🌨️'],
+    80:['Rain showers','🌧️'],81:['Rain showers','🌧️'],82:['Violent showers','🌧️'],
+    95:['Thunderstorm','⛈️'],96:['Thunderstorm','⛈️'],99:['Thunderstorm','⛈️']
+  };
+  function weatherInfo(code){
+    return WEATHER_CODES[code] || ['Conditions unclear','🌡️'];
+  }
+
+  // ---------- Distance helpers ----------
+  function haversine(lat1, lon1, lat2, lon2){
+    var R = 6371000;
+    var dLat = (lat2-lat1) * Math.PI/180;
+    var dLon = (lon2-lon1) * Math.PI/180;
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+      Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+      Math.sin(dLon/2)*Math.sin(dLon/2);
+    var c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R*c;
+  }
+
+  function minDistanceToRoute(hLat, hLng, coords){
+    var min = Infinity;
+    var step = Math.max(1, Math.floor(coords.length/60));
+    for(var i=0;i<coords.length;i+=step){
+      var d = haversine(hLat, hLng, coords[i][1], coords[i][0]);
+      if(d < min) min = d;
+    }
+    return min;
+  }
+
+  // ---------- Routing ----------
+  var lastRoutes = null;
+
+  async function runRouteSearch(){
+    var fromVal = document.getElementById('fromInput').value.trim();
+    var toVal = document.getElementById('toInput').value.trim();
+    if(!fromVal || !toVal){
+      setStatus('Enter both a starting point and a destination.', true);
+      return;
+    }
+    var btn = document.getElementById('findRouteBtn');
+    btn.disabled = true;
+    setStatus('Looking up locations…');
+    try{
+      var from = await geocode(fromVal);
+      var to = await geocode(toVal);
+
+      setStatus('Fetching route options…');
+      var osrmUrl = 'https://router.project-osrm.org/route/v1/driving/' +
+        from.lng + ',' + from.lat + ';' + to.lng + ',' + to.lat +
+        '?alternatives=true&overview=full&geometries=geojson';
+      var res = await fetch(osrmUrl);
+      if(!res.ok) throw new Error('Routing service failed');
+      var data = await res.json();
+      if(!data.routes || data.routes.length === 0) throw new Error('No route found between those points');
+
+      if(startMarker) map.removeLayer(startMarker);
+      if(endMarker) map.removeLayer(endMarker);
+      startMarker = L.marker([from.lat, from.lng]).addTo(map).bindPopup('Start');
+      endMarker = L.marker([to.lat, to.lng]).addTo(map).bindPopup('Destination');
+
+      lastRoutes = data.routes;
+      setStatus('Checking live weather along the route…');
+      await scoreAndRenderRoutes(data.routes);
+      setStatus('');
+    }catch(err){
+      setStatus(err.message || 'Something went wrong.', true);
+    }finally{
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('findRouteBtn').addEventListener('click', runRouteSearch);
+
+  document.querySelectorAll('.quick-btn').forEach(function(qb){
+    qb.addEventListener('click', function(){
+      document.getElementById('fromInput').value = qb.getAttribute('data-from');
+      document.getElementById('toInput').value = qb.getAttribute('data-to');
+      runRouteSearch();
+    });
+  });
+
+  var scoredRoutes = [];
+  var selectedRouteIndex = 0;
+
+  async function scoreAndRenderRoutes(routes){
+    var scored = [];
+    for(var i=0;i<routes.length;i++){
+      var r = routes[i];
+      var coords = r.geometry.coordinates; // [lng,lat]
+      var mid = coords[Math.floor(coords.length/2)];
+
+      var factors = [];
+      var penalty = 0;
+      var weatherData = null;
+      var nearbyHazards = [];
+
+      try{
+        weatherData = await getWeather(mid[1], mid[0]);
+        if(weatherData.precipitation && weatherData.precipitation > 0.3){
+          penalty += 0.12;
+          factors.push({label:'Rain along route', color:'var(--blue)'});
+        }
+        if(weatherData.wind_speed_10m && weatherData.wind_speed_10m > 35){
+          penalty += 0.06;
+          factors.push({label:'Strong wind', color:'var(--blue)'});
+        }
+      }catch(e){ /* weather optional, skip on failure */ }
+
+      hazards.forEach(function(h){
+        var d = minDistanceToRoute(h.lat, h.lng, coords);
+        if(d < 250){
+          penalty += HAZARD_TYPES[h.type].penalty;
+          factors.push({label: HAZARD_TYPES[h.type].label, color: HAZARD_TYPES[h.type].color});
+          nearbyHazards.push(h);
+        }
+      });
+
+      scored.push({
+        route: r,
+        duration: r.duration,
+        distance: r.distance,
+        penalty: penalty,
+        adjusted: r.duration * (1 + penalty),
+        factors: factors,
+        weather: weatherData,
+        nearbyHazards: nearbyHazards
+      });
+    }
+
+    scoredRoutes = scored;
+    var recommendedIdx = 0;
+    scored.forEach(function(s, idx){ if(s.adjusted < scored[recommendedIdx].adjusted) recommendedIdx = idx; });
+    var shortestIdx = 0;
+    scored.forEach(function(s, idx){ if(s.distance < scored[shortestIdx].distance) shortestIdx = idx; });
+
+    scoredRoutes.recommendedIdx = recommendedIdx;
+    scoredRoutes.shortestIdx = shortestIdx;
+
+    selectedRouteIndex = recommendedIdx;
+    drawRoutes();
+    renderResults();
+  }
+
+  function drawRoutes(){
+    routeLayers.forEach(function(l){ map.removeLayer(l); });
+    routeLayers = [];
+
+    scoredRoutes.forEach(function(s, idx){
+      if(idx === selectedRouteIndex) return; // draw selected last, on top
+      var layer = L.geoJSON(s.route.geometry, {
+        style:{color:'#8d98a3', weight:4, opacity:0.55, dashArray:'6,7'}
+      }).addTo(map);
+      routeLayers.push(layer);
+    });
+
+    var sel = scoredRoutes[selectedRouteIndex];
+    var selLine = L.geoJSON(sel.route.geometry, {
+      style:{color:'#f2b705', weight:5, opacity:0.95}
+    }).addTo(map);
+    routeLayers.push(selLine);
+    map.fitBounds(selLine.getBounds(), {padding:[40,40]});
+
+    renderMapInfoPanel(sel);
+  }
+
+  function selectRoute(idx){
+    selectedRouteIndex = idx;
+    drawRoutes();
+    renderResults();
+  }
+
+  function fmtMins(seconds){
+    var m = Math.round(seconds/60);
+    if(m < 60) return m + ' min';
+    return Math.floor(m/60) + 'h ' + (m%60) + 'm';
+  }
+  function fmtKm(meters){
+    return (meters/1000).toFixed(1) + ' km';
+  }
+
+  function factorsHtml(factors){
+    if(factors.length === 0) return '<div class="note">No weather or hazard concerns detected.</div>';
+    return factors.map(function(f){
+      return '<span class="factor"><span class="sw" style="background:'+f.color+';"></span>'+f.label+'</span>';
+    }).join('');
+  }
+
+  function renderResults(){
+    var section = document.getElementById('resultsSection');
+    var wrap = document.getElementById('resultsWrap');
+    section.style.display = 'block';
+
+    var html = scoredRoutes.map(function(s, idx){
+      var tags = '';
+      if(idx === scoredRoutes.recommendedIdx) tags += '<span class="rc-tag tag-amber">Recommended</span>';
+      if(idx === scoredRoutes.shortestIdx) tags += '<span class="rc-tag">Shortest</span>';
+      var breakdown = '';
+      if(s.penalty > 0){
+        breakdown = '<div class="score-breakdown">Base time <strong>' + fmtMins(s.duration) +
+          '</strong> adjusted by <strong>+' + Math.round(s.penalty*100) + '%</strong> for the conditions below.</div>';
+      }else{
+        breakdown = '<div class="score-breakdown">No weather or hazard adjustments here — this reflects normal drive-time conditions.</div>';
+      }
+      var cls = 'route-card' + (idx === scoredRoutes.recommendedIdx ? ' recommended' : '') + (idx === selectedRouteIndex ? ' selected' : '');
+      return '<div class="' + cls + '" data-idx="' + idx + '">' +
+        '<div class="rc-top"><span class="rc-label">' + tags + '</span><span class="rc-eta">' + fmtMins(s.adjusted) + '</span></div>' +
+        '<div class="rc-meta">' + fmtKm(s.distance) + '</div>' +
+        factorsHtml(s.factors) +
+        breakdown +
+        '</div>';
+    }).join('');
+
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.route-card').forEach(function(card){
+      card.addEventListener('click', function(){
+        selectRoute(parseInt(card.getAttribute('data-idx'), 10));
+      });
+    });
+  }
+
+  function renderMapInfoPanel(s){
+    // Weather
+    if(s.weather){
+      var info = weatherInfo(s.weather.weather_code);
+      document.getElementById('infoWeatherValue').textContent = info[1] + ' ' + info[0];
+      var subParts = [];
+      if(typeof s.weather.temperature_2m === 'number') subParts.push(Math.round(s.weather.temperature_2m) + '°C');
+      if(typeof s.weather.precipitation === 'number') subParts.push(s.weather.precipitation.toFixed(1) + 'mm precip');
+      if(typeof s.weather.wind_speed_10m === 'number') subParts.push(Math.round(s.weather.wind_speed_10m) + ' km/h wind');
+      document.getElementById('infoWeatherSub').textContent = subParts.join(' · ');
+    }else{
+      document.getElementById('infoWeatherValue').textContent = 'Unavailable';
+      document.getElementById('infoWeatherSub').textContent = 'Weather service did not respond';
+    }
+
+    // Traffic (from crowdsourced traffic reports near this route)
+    var trafficReports = s.nearbyHazards.filter(function(h){ return h.type === 'traffic'; });
+    if(trafficReports.length === 0){
+      document.getElementById('infoTrafficValue').textContent = 'Light';
+      document.getElementById('infoTrafficSub').textContent = 'No congestion reports near this route';
+    }else if(trafficReports.length === 1){
+      document.getElementById('infoTrafficValue').textContent = 'Moderate';
+      document.getElementById('infoTrafficSub').textContent = '1 congestion report near this route';
+    }else{
+      document.getElementById('infoTrafficValue').textContent = 'Heavy';
+      document.getElementById('infoTrafficSub').textContent = trafficReports.length + ' congestion reports near this route';
+    }
+
+    // Road condition (potholes / accidents / flooding, excluding traffic)
+    var roadReports = s.nearbyHazards.filter(function(h){ return h.type !== 'traffic'; });
+    if(roadReports.length === 0){
+      document.getElementById('infoRoadValue').textContent = 'Clear';
+      document.getElementById('infoRoadSub').textContent = 'No reported road issues on this route';
+    }else{
+      var counts = {};
+      roadReports.forEach(function(h){ counts[h.type] = (counts[h.type]||0)+1; });
+      var parts = Object.keys(counts).map(function(t){
+        return counts[t] + ' ' + HAZARD_TYPES[t].label.toLowerCase() + (counts[t] > 1 ? 's' : '');
+      });
+      document.getElementById('infoRoadValue').textContent = roadReports.length + (roadReports.length === 1 ? ' issue nearby' : ' issues nearby');
+      document.getElementById('infoRoadSub').textContent = parts.join(', ');
+    }
+
+    // Risk factor — combined weather + road condition + traffic penalty
+    var riskLevel, riskClass;
+    if(s.penalty <= 0.001){ riskLevel = 'Low'; riskClass = 'risk-low'; }
+    else if(s.penalty <= 0.15){ riskLevel = 'Moderate'; riskClass = 'risk-moderate'; }
+    else{ riskLevel = 'High'; riskClass = 'risk-high'; }
+    var badge = document.getElementById('infoRiskBadge');
+    badge.textContent = riskLevel;
+    badge.className = 'risk-badge ' + riskClass;
+    document.getElementById('infoRiskSub').textContent =
+      'Combines weather, road condition and traffic reports (+' + Math.round(s.penalty*100) + '% time impact)';
+  }
+
+})();
+</script>
+
+</body>
+</html>
